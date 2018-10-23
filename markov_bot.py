@@ -1,14 +1,15 @@
 
-import os.path, os.environ, pickle, hashlib, logging, time, sys, traceback, random, unicodedata, os, gc, json, urllib.error, urllib.parse, urllib.request, socket, requests, shlex
+import os.path, pickle, hashlib, logging, time, sys, traceback, random, unicodedata, os, gc, json, urllib.error, urllib.parse, urllib.request, socket, requests, shlex
+import config
 # minimal Telegram bot library
 SENT = False
 
 try:
-    T = os.environ.get('TOKEN')
+    T = config.TOKEN
     UA = "A_BROWSER_USER_AGENT_GOES_HERE"
 except Exception as e:
     print("error on config: " + format(e))
-    
+
 custom_urlopen = lambda u,**kw:urllib.request.urlopen(urllib.request.Request(u, headers={'User-Agent': UA}),**kw)
 class TelegramBot():
     class attribute_dict():
