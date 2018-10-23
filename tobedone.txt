@@ -1,0 +1,13 @@
+defecateMarkovMsg() should not take bot as parameter but instead should return "msg"
+
+each time Markov_script.py is launched (or maybe dayly?) it should print some debug or general info as:
+	number of chat in which Markov is present
+
+each time Markov is added on a new chat it should raise a print on log file
+
+
+add /berserker mode
+
+
+
+
