@@ -1,8 +1,11 @@
 
 import os.path, pickle, hashlib, logging, time, sys, traceback, random, unicodedata, os, gc, json, urllib.error, urllib.parse, urllib.request, socket, requests, shlex
 import config
+from datetime import datetime
+
 # minimal Telegram bot library
 SENT = False
+print("Give me a second to get ready...")
 
 try:
     T = config.TOKEN
@@ -161,10 +164,14 @@ except ImportError:
     from urllib2 import URLError 
 
 def save(reason):
-    print("SAVING ",reason)
+    logging.info("...Saving everything with reason: " + reason )
+
+    print("SAVING because: ",reason)
     for key in groups:
-        save_group(key)
+        save_group(key, " ", reason)
     print("SAVED")
+    logging.info("...Everything has been safely saved." )
+
     
 bot = TelegramBot(T)
 MY_USERNAME = bot.getMe().result.username.lower()
@@ -219,55 +226,112 @@ def unload_group(chat_id):
     except:
         pass
 
-def save_group(chat_id):
+def save_group(chat_id, chat_name, reason):
+
+    logging.info("...Saving " + chat_name + " with reason: " + reason )
+
     try:
         with open("markov/chat_" + str(chat_id) + ".dat", "wb") as f:
             pickle.dump(groups[chat_id], f)
-    except:
+    except Exception as e:
+        logging.info("Exception while saving: " + e)
         pass
+
     
-def generateMarkovOgg(msg, g):
-    # g are the group settings
-    # msg is the message data
-    # call espeak and opusenc
-    os.system("rm markov.ogg 2>nul")    
-    os.system("espeak -s" + str(g[2]) + " -v" + g[1] + " " + shlex.quote(limit(msg)) + " --stdout | opusenc - markov.ogg >nul 2>&1")
     
-import logging
+def defecateMarkovMsg(t, g, chat_id, replyto, bot, COMMON_T  ):
+    if t in LAST_USER.keys():
+        if (curtime - LAST_USER[t]) < g[0]:
+            print(str(curtime))
+            print(str(LAST_USER[t]))
+            print("entra nel primo")
+            return
+
+    LAST_USER[t] = curtime
+    COMMON_T += 1
+    if COMMON_T == 8:
+        COMMON_T = 0
+    tries_o = 0
+    if "" in g.keys():
+        while True:
+            tries_o += 1
+            words = []
+            word = ""
+            if random.randint(0,10)<5:
+                word = random.choice(list(filter(lambda x:type(x)==str,g.keys())))
+            else:
+                word = random.choice(g[word])
+            while word != "" and len(words) < min(g[4],100):
+                words.append(word)
+                word = "".join(filter(lambda x:(unicodedata.category(x) in ALLOWABLE),word)).lower()
+                if word not in g.keys():
+                    word = ""
+                else:
+                    word = random.choice(g[word])
+            msg = " ".join(words)
+            if len(msg) > 0: break
+            if tries_o > 1000: break
+        try:
+            bot.sendMessage(chat_id=chat_id,
+                text=msg)
+        except KeyboardInterrupt as e:
+            raise e
+        except:
+            pass
+    else:
+        try:
+            bot.sendMessage(chat_id=chat_id,
+                text="[Chain is empty]",
+                reply_to_message_id=replyto)
+        except KeyboardInterrupt as e:
+            raise e
+        except:
+            pass
+
 
 tried_to = 0
 saferes = True
 OFF = 0
+
+logging.basicConfig(filename='log.log',level=logging.DEBUG, format='%(asctime)s %(message)s')
+
+
+logging.info('...Markinov inizialing loop')
+
 try:
+    print("...mmmhh...")
     def autoreset():
         time.sleep(600)
         while not saferes:
             time.sleep(0.5)
             tried_to = 10000
+        
         time.sleep(30)
         save("quitting - backup thread")
         os.execl(sys.executable, sys.executable, *sys.argv)      
     if Restart:
         threading.Thread(target=autoreset, daemon=True).start()
+    print("..time to shine!")
+    logging.info('...Markinov inizialing loop')
     while True:
+
         tried_to += 1
         if tried_to >= 1000 and Restart:
             save("quitting")
             os.execl(sys.executable, sys.executable, *sys.argv)
-        print("poll " + str(time.time()),end=":")
+        #print("poll " + str(datetime.now().strftime('%d-%m-%Y %H:%M:%S')),end=":") #questa stampa se vogliamo la possiamo togliere
         saferes = False
         try:
             updates = bot.getUpdates__UNSAFE(offset=OFF, timeout=5).result
         except KeyboardInterrupt as e:
-            print("E")
             raise e
         except BaseException as e:
             print("0")
             if str(e).strip().lower() != "timeout":
                 print("poll failed: ", e)
             continue     
-        print(len(updates), end="")
-        print("(" + str(OFF) + ")")
+        #print(len(updates), end="")
+        #print("(" + str(OFF) + ")")
         for update in updates:
             last_msg_id = update.update_id
             OFF = update.update_id + 1
@@ -297,8 +361,19 @@ try:
             replyto = update.message.message_id
             if update.message.has("from"):
                 user = update.message["from"].id
+                if update.message["from"].has("username"):
+                    user_name = update.message["from"].username
+                else:
+                    user_name = update.message["from"].first_name                
             else:
-                user = -1
+                user = -1                
+            if update.message.has("chat"):
+                if update.message["chat"].has("title"):
+                    chat_name = update.message["chat"].title
+                else:
+                    chat_name = ""
+            else:
+                chat_name = ""
             admbypass = False
             try:
                 admbypass = admbypass or update.message.chat.all_members_are_administrators
@@ -314,7 +389,7 @@ try:
                 check_cache()
                     
             # g contents
-            # [mlimit, tts language, tts speed, markov collecting (pause/resume), ~ maximum words]
+            # [mlimit, dummy, dummy, markov collecting (pause/resume), ~ maximum words, berserk]
             g = groups[chat_id]
             if g == None:   
                 groups[chat_id] = {}
@@ -322,13 +397,15 @@ try:
             if 0 not in g.keys():
                 g[0] = 1
             if 1 not in g.keys():
-                g[1] = "en"
+                g[1] = "en" #DUMMY
             if 2 not in g.keys():
-                g[2] = 100
+                g[2] = 0
             if 3 not in g.keys():
                 g[3] = True
             if 4 not in g.keys():
                 g[4] = 10000
+            if 5 not in g.keys():
+                g[5] = 0
                 
             curtime = time.time()
             t = str(user) + ":" + str(chat_id)
@@ -344,50 +421,10 @@ try:
                         continue
                 cmd = rcmd.lower()
                 if cmd == "/markov":
-                    if t in LAST_USER.keys():
-                        if (curtime - LAST_USER[t]) < g[0]:
-                            continue
-
-                    LAST_USER[t] = curtime
-                    COMMON_T += 1
-                    if COMMON_T == 8:
-                        COMMON_T = 0
-                    tries_o = 0
-                    if "" in g.keys():
-                        while True:
-                            tries_o += 1
-                            words = []
-                            word = ""
-                            if random.randint(0,10)<5:
-                                word = random.choice(list(filter(lambda x:type(x)==str,g.keys())))
-                            else:
-                                word = random.choice(g[word])
-                            while word != "" and len(words) < min(g[4],100):
-                                words.append(word)
-                                word = "".join(filter(lambda x:(unicodedata.category(x) in ALLOWABLE),word)).lower()
-                                if word not in g.keys():
-                                    word = ""
-                                else:
-                                    word = random.choice(g[word])
-                            msg = " ".join(words)
-                            if len(msg) > 0: break
-                            if tries_o > 1000: break
-                        try:
-                            bot.sendMessage(chat_id=chat_id,
-                                text=msg)
-                        except KeyboardInterrupt as e:
-                            raise e
-                        except:
-                            pass
-                    else:
-                        try:
-                            bot.sendMessage(chat_id=chat_id,
-                                text="[Chain is empty]",
-                                reply_to_message_id=replyto)
-                        except KeyboardInterrupt as e:
-                            raise e
-                        except:
-                            pass
+                    print("markov has been summoned in " + chat_name + " by " + user_name + " @ " + str(datetime.now().strftime('%d-%m-%Y %H:%M:%S')) )
+                    logging.info("markov has been summoned in " + chat_name + " by " + user_name + " @ " + str(datetime.now().strftime('%d-%m-%Y %H:%M:%S')))
+                    defecateMarkovMsg(t, g, chat_id, replyto, bot, COMMON_T  )
+                    ###############################
                 if cmd == "/mlimit":
                     if t in LAST_USER.keys():
                         if (curtime - LAST_USER[t]) < 1:
@@ -425,14 +462,14 @@ try:
                             text="[Limit set]",
                             reply_to_message_id=replyto)
                     g[0] = v
-                if cmd == "/markovttsspeed":
+                if cmd == "/berserk":
                     if t in LAST_USER.keys():
                         if (curtime - LAST_USER[t]) < 1:
                             continue
                     t = " ".join(message.split(" ")[1:]).strip()
                     if len(t) < 1:
                         bot.sendMessage(chat_id=chat_id,
-                                text="[Usage: /markovttsspeed wpm]",
+                                text="[Usage: /berserk power]",
                                 reply_to_message_id=replyto)
                         continue
                     try:
@@ -441,18 +478,23 @@ try:
                         raise e
                     except:
                         bot.sendMessage(chat_id=chat_id,
-                                text="[Usage: /markovttsspeed wpm]",
+                                text="[Usage: /berserk power]",
                                 reply_to_message_id=replyto)
                         continue
-                    if v < 80 or v > 500:
+                    if v < 0 or v > 10:
                         bot.sendMessage(chat_id=chat_id,
-                                text="[Speed must be between 80-500 wpm]",
+                                text="[Berserk power must be between 0 and 10]",
                                 reply_to_message_id=replyto)
                         continue
-                    bot.sendMessage(chat_id=chat_id,
-                            text="[Speed set]",
+                    if (v == 0):
+                        bot.sendMessage(chat_id=chat_id,
+                            text="Berserk disabled",
                             reply_to_message_id=replyto)
-                    g[2] = v
+                    else:
+                        bot.sendMessage(chat_id=chat_id,
+                                text="So it begins",
+                                reply_to_message_id=replyto)
+                    g[5] = v
                 if cmd == "/markovmaxwords":
                     if t in LAST_USER.keys():
                         if (curtime - LAST_USER[t]) < 1:
@@ -486,7 +528,9 @@ try:
                                 reply_to_message_id=replyto)
                         continue
                     g[4] = v
-                    save_group(chat_id)
+                    save_group(chat_id, chat_name, cmd)
+                    print("Markov max words is now " + v + " in: " + chat_name + " by " + user_name + " @ " + str(datetime.now().strftime('%d-%m-%Y %H:%M:%S')) )
+                    logging.info("Set "+ v + " as new max words limit" + "in " + chat_name + " by " + user_name) 
                     bot.sendMessage(chat_id=chat_id,
                         text="[Maximum words set]",
                         reply_to_message_id=replyto)                    
@@ -513,7 +557,9 @@ try:
                         pass
                     if what == checkhash:
                         groups[chat_id] = {}
-                        save_group(chat_id)
+                        save_group(chat_id, chat_name, cmd)
+                        print("Markov knowledge has been deleted in: " + chat_name + " by " + user_name + " @ " + str(datetime.now().strftime('%d-%m-%Y %H:%M:%S')) )
+                        logging.info("Cleared in " + chat_name + " by " + user_name)                        
                         bot.sendMessage(chat_id=chat_id,
                             text="[Messages cleared]",
                             reply_to_message_id=replyto)                    
@@ -534,7 +580,9 @@ try:
                     except:
                         pass
                     g[3] = False
-                    save_group(chat_id)
+                    print("Markov has been paused in: " + chat_name + " by " + user_name + " @ " + str(datetime.now().strftime('%d-%m-%Y %H:%M:%S')) )
+                    logging.info("Paused in " + chat_name + " by " + user_name)
+                    save_group(chat_id, chat_name, cmd)
                     bot.sendMessage(chat_id=chat_id,
                         text="[Reading paused]",
                         reply_to_message_id=replyto)                    
@@ -551,79 +599,35 @@ try:
                     except:
                         pass
                     g[3] = True
-                    save_group(chat_id)
+                    print("Markov has been resumed in: " + chat_name + " by " + user_name + " @ " + str(datetime.now().strftime('%d-%m-%Y %H:%M:%S')) )
+                    logging.info("Resumed in " + chat_name + " by " + user_name)
+                    save_group(chat_id, chat_name, cmd)
                     bot.sendMessage(chat_id=chat_id,
                         text="[Reading resumed]",
                         reply_to_message_id=replyto)                    
-                if cmd == "/markovtts":
-                    if t in LAST_USER.keys():
-                        if (curtime - LAST_USER[t]) < max(5,g[0]):
-                            continue
-                    LAST_USER[t] = curtime
-                    COMMON_T += 1
-                    if COMMON_T == 8:
-                        COMMON_T = 0
-                    if "" in g.keys():
-                        while True:
-                            words = []
-                            word = ""
-                            if random.randint(0,10)<5:
-                                word = random.choice(list(filter(lambda x:type(x)==str,g.keys())))
-                            else:
-                                word = random.choice(g[word])
-                            while word != "" and len(words) < min(g[4],120):
-                                words.append(word)
-                                word = "".join(filter(lambda x:(unicodedata.category(x) in ALLOWABLE),word)).lower()
-                                if word not in g.keys():
-                                    word = ""
-                                else:
-                                    word = random.choice(g[word])
-                            msg = " ".join(words)
-                            if len(msg) > 0: break
-                        try:
-                            generateMarkovOgg(msg, g)
-                            headers = {'User-Agent': UA}
-                            files = {"voice": open("markov.ogg","rb")}
-                            bot.sendVoice(_urlopen_hook=lambda u:requests.post(u, headers=headers, files=files).text,
-                                chat_id=chat_id)
-                        except KeyboardInterrupt as e:
-                            raise e
-                        except BaseException as e:
-                            exc_type, exc_value, exc_traceback = sys.exc_info()
-                            print("\n".join(traceback.format_exception(exc_type, exc_value, exc_traceback)))
-                            bot.sendMessage(chat_id=chat_id,
-                                    text="Could not send voice",
-                                    reply_to_message_id=replyto)                    
-                    else:
-                        bot.sendMessage(chat_id=chat_id,
-                                text="[Chain is empty]",
-                                reply_to_message_id=replyto)
-                if cmd == "/markovttslang":
-                    if t in LAST_USER.keys():
-                        if (curtime - LAST_USER[t]) < 1:
-                            continue
-                    v = " ".join(message.split(" ")[1:]).strip()
-                    if v not in LANGS:
-                        bot.sendMessage(chat_id=chat_id,
-                                text=("[Unknown language]\n" if len(v) > 0 else "") + ", ".join(LANGS),
-                                reply_to_message_id=replyto)
-                        continue
-                    bot.sendMessage(chat_id=chat_id,
-                            text="[Language set]",
-                            reply_to_message_id=replyto)
-                    g[1] = v
             elif message[0] != "/":
                 if g[3]:
+                    print("added: \"" + message + "\" in: " + chat_name + " by " + user_name + " @ " + str(datetime.now().strftime('%d-%m-%Y %H:%M:%S')) )
+                    logging.info("new message in " + chat_name + " by " + user_name )
                     if SPLIT_LINES:
                         for line in message.split("\n"):
                             addMessage(line, g)
                     else:
-                        addMessage(message, g)      
+                        addMessage(message, g)
+                    if g[5] > 0 and g[5] < 11:
+                        ris = random.randint(0,10)
+                        print (str(g[5]) + ">" + str(ris))
+                        if g[5] >= ris:
+                            defecateMarkovMsg(t, g, chat_id, replyto, bot, COMMON_T  )
                 saferes = True
         time.sleep(0.02)
+        sys.stdout.flush()
 except KeyboardInterrupt as e:
-    save("Quit")
+    save("Quit by keyboardInterrupt")
+    logging.warning("...Quitting because keyboardInterrupt" )    
+    print("bye bye Markinov...")
 except BaseException as e:
-    save("Exception")
-    traceback.print_exc()
+    save("BaseExeception")
+    logging.warning("Exception: " + e )
+    print(e)
     
